@@ -1,0 +1,533 @@
+---
+title: "Project"
+author: "Anastasios Vlaikidis"
+date: "5/23/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Libraries
+```{r}
+library(dplyr)
+library(car)
+library(ggplot2)
+library(GGally)
+library(caret)
+```
+
+
+Load the dataset
+```{r}
+companies <- read.csv("companies.txt", sep="")
+head(companies)
+tail(companies)
+```
+
+Exploring data using summary statistics_
+```{r}
+str(companies)
+```
+
+For convenience we will convert strings to factors.
+```{r}
+SLD <- companies
+SLD <- strings2factors(SLD)
+SLD$Company_Name <- factor(SLD$Company_Name)
+str(SLD)
+```
+
+
+```{r echo=FALSE,eval=TRUE}
+# command which reveals how the object's storage is implemented
+cat("How object's storage is implemented:",typeof(SLD),"\n")
+# what kind of object we have
+cat("What kind of object's we have:",class(SLD),"\n")
+# dimension of dataset
+cat("Dimensions of our object",dim(SLD),"\n")
+```
+
+```{r}
+# summary of R object
+cat("Summary of our Data\n")
+summary(SLD)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+# class of variables
+# str(SLD)
+```
+
+
+Which of our variables are categorical
+```{r}
+outcome <- "Q1821" # random string not the same as colnames
+vars <- setdiff(colnames(SLD), outcome)
+is_categorical <- vapply(SLD[, vars],
+                         function(v) !is.numeric(v),
+                         logical(1))
+
+is_categorical
+summary(is_categorical)
+```
+
+
+Count the levels of categorical variables
+```{r}
+nlevels <- vapply(SLD[, is_categorical],
+                  function(v) length(unique(v)),
+                  numeric(1))
+nlevels
+summary(nlevels)
+```
+
+
+Number of missing data
+```{r echo=FALSE,eval=TRUE}
+# colSums(is.na(SLD))
+# count the number of missing values in each column
+outcome <- "Q1821" # random string not the same as colnames
+vars    <- setdiff(colnames(SLD), outcome)
+nNAs    <- vapply(SLD[, vars],
+               function(v) sum(is.na(v)),
+               numeric(1))
+nNAs
+summary(nNAs)
+
+
+na  <- sum(is.na(SLD))
+tot <- dim(SLD)[1]*dim(SLD)[2]
+cat("\n Total number of NA:",na)
+pos <-round((na/tot)*100,2)
+cat("\n Portion of NA in all dataset:",pos,"%")
+```
+
+
+
+# Task 1
+## New dataframe
+Make new dataframe with only the sales(response) and market values(explanatory) as columns
+```{r}
+df <- select(SLD,c("Sales","Market_Value"))
+ggpairs(df)
+```
+
+
+## Preprocess
+```{r}
+ctrl <- trainControl()
+```
+
+
+## Fit a linear model
+```{r}
+seed <-1821
+set.seed(seed)
+metric <- "RMSE"
+fit.lm <- train(Sales~Market_Value,
+               data = df,
+             method = "lm",
+             metric = metric,
+          trControl = ctrl,
+         preProcess = NULL
+)
+```
+
+
+## Results
+```{r}
+print(fit.lm)
+fit.lm$finalModel
+```
+
+
+## Diagnostics
+```{r}
+plot(fit.lm$finalModel)
+```
+
+
+## Fit a log model
+```{r}
+seed <-1821
+set.seed(seed)
+metric <- "RMSE"
+fit.lm2 <- train(log(Sales)~Market_Value,
+               data = df,
+             method = "lm",
+             metric = metric,
+          trControl = ctrl,
+         preProcess = NULL
+)
+```
+
+
+## Results
+```{r}
+print(fit.lm2)
+fit.lm2$finalModel
+```
+
+
+## Diagnostics
+```{r}
+plot(fit.lm2$finalModel)
+```
+
+## Best model
+We choose the second model because of better results and better diagnostics
+
+
+
+
+# Task 2
+## Fit a log model
+```{r}
+seed <-1821
+set.seed(seed)
+metric <- "RMSE"
+fit.lm3 <- train(log(Sales)~
+                 log(Assets)+
+                 log(Market_Value)+
+                 log(Employees)+
+                 sign(Profits)*log(abs(Profits)),
+               data = SLD,
+             method = "lm",
+             metric = metric,
+          trControl = ctrl,
+         preProcess = NULL
+)
+```
+
+
+## Results
+```{r}
+print(fit.lm3)
+fit.lm3$finalModel
+```
+
+
+## Diagnostics
+```{r}
+plot(fit.lm3$finalModel)
+```
+
+
+## Stepwise regression
+Fit a glmStepAIC model
+```{r,message=F,warning=F}
+seed <-1821
+set.seed(seed)
+metric <- "RMSE"
+Sales <- log(SLD$Sales)
+Assets <- log(SLD$Assets)
+Market_Value <- log(SLD$Market_Value)
+Employees <- log(SLD$Employees)
+Profits <- sign(SLD$Profits)*log(abs(SLD$Profits))
+Sector <- SLD$Sector
+SLD2 <- data.frame(Assets,Sales,Market_Value,Profits,Employees)
+
+fit.lm4 <- train(Sales~
+                 Assets+
+                 Market_Value+
+                 Employees+
+                 Profits,
+               data = SLD2,
+             method = "glmStepAIC",
+             metric = metric,
+          trControl = ctrl,
+         preProcess = NULL
+)
+```
+
+
+## Results
+```{r}
+print(fit.lm4)
+fit.lm4$finalModel
+```
+
+
+## Diagnostics
+```{r}
+plot(fit.lm4$finalModel)
+```
+
+
+## Predictions
+Find the mean values and put them in a new dataframe
+```{r}
+df2 <- SLD2 %>% filter(Sector == "A")
+df2 <- lapply(df2,mean)
+df2 <- data.frame(df2)
+```
+
+
+```{r}
+pred <- predict(fit.lm4$finalModel,df2)
+pred 
+```
+
+
+
+
+# Task 3
+
+Fit a glm poisson model
+```{r}
+seed <-1821
+set.seed(seed)
+metric <- "RMSE"
+SLD3 <- select(SLD,-c("Company_Name","Sector"))
+fit.glm <- train(Market_Value~.,
+               data = SLD3,
+             method = "glm",
+             family = poisson(link = "log"),
+             metric = metric,
+          trControl = ctrl,
+         preProcess = NULL
+)
+```
+
+
+## Results
+```{r}
+print(fit.glm)
+fit.glm$finalModel
+```
+
+
+## Diagnostics
+```{r}
+plot(fit.glm$finalModel)
+```
+
+
+## Predictions
+Find the mean values and put them in a new dataframe
+```{r}
+df3 <- SLD2 %>% filter(Sector == "A")
+df3 <- lapply(df3,mean)
+df3 <- data.frame(df3)
+```
+
+
+```{r}
+pred <- predict(fit.glm$finalModel,df3)
+pred 
+```
+
+
+
+
+# Task 4
+Replace the variable "Profits" a new binary variable named "Profitable", which takes the value 1 when the company is profitable and 0 otherwise
+```{r}
+Profitable <-ifelse(SLD$Profits >0,1,0)
+
+SLD4 <- cbind(SLD,Profitable)
+
+SLD5 <- select(SLD4,-c("Company_Name",
+                       "Profits"))
+
+SLD6 <- SLD5 %>% filter(Sector == "A")
+
+SLD7 <- select(SLD4,-c("Company_Name",
+                       "Sector",
+                       "Profits"))
+```
+
+
+Fit a glm binomial model
+```{r,warning=F}
+seed <-1821
+set.seed(seed)
+metric <- "Accuracy"
+SLD7$Profitable <- factor(SLD7$Profitable)
+
+fit.glm2 <- train(Profitable~.,
+               data = SLD7,
+             method = "glm",
+             family = "binomial",
+             metric = metric,
+          trControl = ctrl,
+         preProcess = NULL
+)
+```
+
+
+## Results
+```{r}
+print(fit.glm2)
+fit.glm2$finalModel
+```
+
+
+
+## Predictions
+Find the mean values and put them in a new dataframe
+```{r}
+df4 <- lapply(SLD6[,-c(5,6)],mean)
+df4<- data.frame(df4)
+```
+
+
+```{r}
+pred <- predict(fit.glm2$finalModel,df4)
+pred 
+```
+
+
+
+# Task 5
+## Tha dataset
+```{r}
+SLD8 <- select(SLD4,-c("Profits","Company_Name"))
+head(SLD8)
+str(SLD8)
+```
+
+
+## Fit a lda model
+```{r,message=F,warning=FALSE}
+seed <-1821
+set.seed(seed)
+metric <- "Accuracy"
+SLD8$Profitable <- factor(SLD8$Profitable)
+
+fit.lda <- train(Sector~.,
+               data = SLD8,
+             method = "lda",
+             metric = metric,
+          trControl = ctrl,
+         preProcess = NULL
+)
+```
+
+
+## Results
+```{r}
+print(fit.lda)
+fit.lda$finalModel
+```
+
+
+
+## Preprocess
+```{r}
+## cross validated 5 times
+ctrl1   <- trainControl(method  = "repeatedcv",
+                       number  = 5,
+                       repeats = 5
+)
+
+## cross validated 10 times
+ctrl2   <- trainControl(method  = "repeatedcv",
+                       number  = 10,
+                       repeats = 5
+)
+
+## cross validated 20 times
+ctrl3  <- trainControl(method  = "repeatedcv",
+                       number  = 20,
+                       repeats = 5
+)
+```
+
+
+## Fit  cv lda model
+```{r,message=F,warning=FALSE}
+seed <-1821
+set.seed(seed)
+metric <- "Accuracy"
+SLD8$Profitable <- factor(SLD8$Profitable)
+
+fit.lda1 <- train(Profitable~.,
+               data = SLD8,
+             method = "lda",
+             metric = metric,
+          trControl = ctrl1,
+         preProcess = NULL
+)
+
+
+fit.lda2 <- train(Profitable~.,
+               data = SLD8,
+             method = "lda",
+             metric = metric,
+          trControl = ctrl2,
+         preProcess = NULL
+)
+
+
+fit.lda3 <- train(Profitable~.,
+               data = SLD8,
+             method = "lda",
+             metric = metric,
+          trControl = ctrl3,
+         preProcess = NULL
+)
+```
+
+
+## Compare methods
+```{r}
+fit.lda1$finalModel
+fit.lda2$finalModel
+fit.lda3$finalModel
+```
+
+
+
+## The dataset
+```{r}
+SLD9 <- select(SLD8,-c("Sector"))
+```
+
+
+## Fit a KNN model
+```{r}
+seed <-1821
+set.seed(seed)
+metric <- "Accuracy"
+
+
+fit.knn<- train(Profitable~.,
+               data = SLD9,
+             method = "knn",
+             metric = metric,
+          trControl = ctrl1,
+         preProcess = NULL
+)
+```
+
+
+## Results
+```{r}
+print(fit.knn)
+fit.knn$finalModel
+```
+
+
+## Fit a decision tree
+```{r}
+seed <-1821
+set.seed(seed)
+metric <- "Accuracy"
+
+fit.rpart<- train(Profitable~.,
+               data = SLD9,
+             method = "rpart",
+             metric = metric,
+          trControl = ctrl,
+         preProcess = NULL
+)
+```
+
+
+## Results
+```{r}
+print(fit.rpart)
+fit.rpart$finalModel
+```
